@@ -3,4 +3,8 @@
 
 # Example code in package build process
 *-Ex.R
+.DS_Store
+*.Rproj
 .Rproj.user
+data-search/*
+data-charts/*
