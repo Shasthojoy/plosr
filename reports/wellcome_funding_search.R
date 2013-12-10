@@ -17,6 +17,7 @@ grist_url <- "http://plus.europepmc.org/GristAPI/rest/get/query=gid:"
 # Read in required functions
 library(rplos)
 library(stringr)
+library(reshape2)
 library(plyr)
 library(httr)
 
@@ -71,47 +72,50 @@ if (file.exists(report.csv)) {
   for (i in 1:n) {
     row <- articles[i,]
     row$grants <- matchGrants(row$financial_disclosure, regex_string)
-    #row$grants <- row$grants[row$grants == ""] <-NA
     parsed_articles <- rbind(parsed_articles,row)
   }
   write.csv(parsed_articles, report.csv, row.names=FALSE, fileEncoding="utf-8")
 }
 
 # Search for grant information
-# report.csv <- paste("data/grants_", report_name, "_", report_date, ".csv", sep="")
-# if (file.exists(report.csv)) {
-#   grants <- read.csv(report.csv, stringsAsFactors=FALSE, header=TRUE)
-# } else {
-#   grants <- data.frame()
-#   for (i in 1:nrow(articles))  {
-#     article <- articles[i,]
-#     
-#     # skip if no grant found
-#     if (is.na(article$grant)) next
-#     
-#     query <- paste(grist_url, article$grant, "&format=json", sep="")
-#     response <- content(GET(query)) 
-#     
-#     # store funder, grant ID and grant title if match found. Use rbind.fill instead of rbind to handle factors
-#     if (!is.null(response$HitCount) && as.numeric(response$HitCount) == 1) {
-#       grants <- rbind.fill(grants, as.data.frame(response$RecordList$Record$Grant))
-#     }
-#   }
-#   # only keep grants that match funder name
-#   grants <- subset(grants, grants$Funder == funder_name)
-#   
-#   # remove duplicates
-#   grants <- unique(grants)
-#   
-#   # rename grant title column to distinguish from article title, and discard other columns
-#   names(grants)[names(grants)=="Title"] <- "grant_title"
-#   grants <- subset(grants, select=c("Id","grant_title"))
-#   
-#   write.csv(grants, report.csv, row.names=FALSE, fileEncoding="utf-8")
-# }
-# 
-# # merge articles with grants and save as CSV
-# results <- merge(articles, grants, by.x="grant", by.y="Id", all.y = TRUE)
-# results <- subset(results, select=c("doi","publication_date","title","financial_disclosure","grant","grant_title"))
-# report.csv <- paste("data/results_", report_name, "_", report_date, ".csv", sep="")
-# write.csv(results, report.csv, row.names=FALSE, fileEncoding="utf-8")
+report.csv <- paste("data/grants_", report_name, "_", report_date, ".csv", sep="")
+if (file.exists(report.csv)) {
+  grants <- read.csv(report.csv, stringsAsFactors=FALSE, header=TRUE)
+} else {
+  grants <- data.frame()
+  for (i in 1:nrow(articles))  {
+    article <- parsed_articles[i,]
+    
+    # skip if no grant found
+    if (is.na(article$grants)) next
+    
+    candidates <- unlist(strsplit(article$grant, ";", fixed = TRUE))
+    for (grant in candidates) {
+      query <- paste(grist_url, grant, "&format=json", sep="")
+      response <- content(GET(query)) 
+      
+      # store funder, grant ID and grant title if match found. Use rbind.fill instead of rbind to handle factors
+      if (!is.null(response$HitCount) && as.numeric(response$HitCount) == 1) {
+        grants <- rbind.fill(grants, as.data.frame(list(doi=article$doi,response$RecordList$Record$Grant)))
+      }
+    }
+  }
+  # only keep grants that match funder name
+  grants <- subset(grants, grants$Funder == funder_name)
+  
+  # remove duplicates
+  grants <- unique(grants)
+  
+  # rename grant title column to distinguish from article title, and discard other columns
+  names(grants)[names(grants)=="Title"] <- "grant_title"
+  grants <- subset(grants, select=c("doi","Id","grant_title"))
+  
+  write.csv(grants, report.csv, row.names=FALSE, fileEncoding="utf-8")
+}
+
+# merge articles with grants and save as CSV
+results <- merge(parsed_articles, grants, by="doi", all.y = TRUE)
+results <- results[order(results$doi),]
+results <- subset(results, select=c("doi","publication_date","title","financial_disclosure","grants","Id","grant_title"))
+report.csv <- paste("data/results_", report_name, "_", report_date, ".csv", sep="")
+write.csv(results, report.csv, row.names=FALSE, fileEncoding="utf-8")
